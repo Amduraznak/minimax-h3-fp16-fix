@@ -50,8 +50,7 @@ projections, the AdaLN table) are untouched.
 - **Ampere and newer:** no benefit — bf16 already runs on the tensor cores,
   and the patch stays inert.
 - **AMD:** community-reported working on a V620 under ROCm (fixed the dtype
-  mismatch, with a real speedup). The fixes target the number format, not
-  the silicon, so they port.
+  mismatch, with a real speedup).
 
 ## Install
 
