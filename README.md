@@ -36,6 +36,23 @@ value (65504):
 ComfyUI's existing fp32 islands for H3 (`video_out` / `audio_out`, the patch
 projections, the AdaLN table) are untouched.
 
+## Which GPUs benefit
+
+- **Volta (V100, Titan V) and Turing (T4, RTX 20xx, Quadro RTX, Titan RTX):
+  the big win.** Their tensor cores have no bf16/TF32 support, so the fp32
+  fallback leaves them completely idle — fp16 is the only format that engages
+  them. ~11× measured on the V100; the exact ratio varies per card (Turing is
+  untested but has the identical situation — reports welcome).
+- **P100:** ~2× expected. No tensor cores, but double-rate vector fp16.
+- **P40 / GTX 10-series (sm_61): do not bother.** Those chips run fp16 at
+  1/64 rate — this patch fixes the black frames but will be far *slower*
+  than the fp32 fallback there.
+- **Ampere and newer:** no benefit — bf16 already runs on the tensor cores,
+  and the patch stays inert.
+- **AMD:** community-reported working on a V620 under ROCm (fixed the dtype
+  mismatch, with a real speedup). The fixes target the number format, not
+  the silicon, so they port.
+
 ## Install
 
 1. Copy `minimax_h3_fp16_fix.py` into `ComfyUI/custom_nodes/`.
@@ -49,8 +66,9 @@ bf16/fp32 mode it does nothing, so it is safe to leave installed.
 - This monkey-patches internal ComfyUI classes (`MiniMaxH3Model`, `DiTBlock`,
   `MLP`). A ComfyUI refactor of `comfy/ldm/minimax/model.py` can break it.
   Tested against ComfyUI as of August 2026.
-- Tested on one machine (V100 32GB). Other pre-Ampere cards (P40, GP100,
-  Titan V) should behave the same but are unverified.
+- Tested on one machine (V100 32GB). The other cards in the benefit table
+  are expected to behave the same but are unverified (except the AMD V620,
+  which was community-confirmed).
 
 ## AI disclosure
 
