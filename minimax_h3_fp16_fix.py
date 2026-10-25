@@ -74,14 +74,15 @@ mm.MLP.forward = _patched_mlp_forward
 
 # (2) fp32 residual stream: x stays fp32 across all 50 blocks; the norm+modulate
 # results are cast to fp16 for the attn/MLP branches, and gates accumulate in fp32.
-def _patched_block_forward(self, x, t_emb, mod_segments, rope_freqs, transformer_options={}):
+def _patched_block_forward(self, x, t_emb, mod_segments, rope_freqs, transformer_options={}, attention=None):
     if not getattr(self, "_h3_fp16_fix", False):
-        return _orig_block_forward(self, x, t_emb, mod_segments, rope_freqs, transformer_options)
+        return _orig_block_forward(self, x, t_emb, mod_segments, rope_freqs, transformer_options, attention=attention)
     if x.dtype != torch.float32:
         x = x.to(torch.float32)
     shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaln_proj(t_emb)
     h = mm._mod_scale_shift(self.norm1(x), shift_msa, scale_msa, mod_segments).to(torch.float16)
-    att = self.attn(h, rope_freqs=rope_freqs, transformer_options=transformer_options)
+    attention = self.attn if attention is None else attention
+    att = attention(h, rope_freqs=rope_freqs, transformer_options=transformer_options)
     x = mm._mod_gate(x, gate_msa, att.to(torch.float32), mod_segments)
     h = mm._mod_scale_shift(self.norm2(x), shift_mlp, scale_mlp, mod_segments).to(torch.float16)
     m = self.mlp(h)

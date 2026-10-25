@@ -69,6 +69,50 @@ bf16/fp32 mode it does nothing, so it is safe to leave installed.
   are expected to behave the same but are unverified (except the AMD V620,
   which was confirmed by a user).
 
+## Current ComfyUI attention callback and V100 validation
+
+Newer ComfyUI passes an optional `attention` callable to `DiTBlock.forward`.
+The patch accepts this argument, honors it in the active FP16 path, and
+forwards it to the original method when the FP16 fix is inactive. This avoids
+an unexpected-keyword error and preserves attention overrides. The numerical
+rescaling logic is unchanged.
+
+This callback adaptation was tested against ComfyUI commit
+`1568e6cfd04586a4b3c4e1817ea7dde09b1bf9e7`. Compatibility with older
+ComfyUI signatures was not tested by this contribution.
+
+Additional hardware validation: Tesla V100 PCIe 32 GiB (sm_70), 150 W power
+limit, Python 3.13.5, PyTorch 2.11.0+cu126, comfy-kitchen 0.2.35. Used the
+pruned INT8 ConvRot FL2VA model, Q4_K_M Qwen3-VL text encoder on CPU in FP32,
+FP16 video VAE and FP32 audio VAE. Isolated runs used low-VRAM mode,
+dynamic VRAM disabled, 10 GiB reserved and PyTorch attention.
+
+Both runs used 512x896, 124 native frames at 24 fps, 20
+`res_multistep`/`simple` steps, CFG 1, seed 12345:
+
+| Mode | Full native generation, including conditioning | Peak sampled total GPU memory |
+| --- | ---: | ---: |
+| Text-to-video | 16 min 49 s | 22.01 GiB |
+| Image-to-video | 19 min 25 s | 22.40 GiB |
+
+All 124 native frames and stereo audio decoded successfully. Finite residual
+checks passed across all 50 blocks. These observations do not establish
+full-model FP32/FP16 equivalence or an independent speedup ratio; runtime and
+memory also depend on the surrounding loading/offloading configuration.
+
+A small CUDA regression check uses synthetic components, no model downloads,
+and exits nonzero on failure. Run it in a fresh process with the ComfyUI
+Python environment (the patch changes classes globally):
+
+```bash
+PYTHONPATH=/path/to/ComfyUI /path/to/ComfyUI/venv/bin/python tests/test_attention_override.py
+```
+
+It checks unchanged FP32 outputs and callback forwarding, FP16 callback
+execution, default/override agreement, FP32 residuals, and finite outputs
+with residual inputs beyond the FP16 range. A separate checkout of this
+repository is recommended for the check so the patch is imported once.
+
 ## AI disclosure
 
 Generative AI (Anthropic's Claude) was used to identify the root cause and
